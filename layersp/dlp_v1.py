@@ -290,27 +290,6 @@ def _forward_range(layers, start, end, x, attention_mask=None, position_ids=None
         outs.append(h)
     return outs  # length = end-start+1
 
-def get_perturb_context(layer, method, wrapped_layers=None, probe_ratio=0.02):
-    """
-    根据 method 返回对应的扰动上下文管理器。
-    支持: 'wanda', 'magnitude', 'none'
-    """
-    if method == "wanda":
-        if wrapped_layers is None:
-            raise ValueError("Wanda pruning requires 'wrapped_layers' to be passed.")
-        return _perturb_layer_wanda(layer, wrapped_layers, probe_ratio=probe_ratio)
-
-    elif method == "magnitude":
-        # Magnitude 不需要 wrapped_layers
-        return _perturb_layer_magnitude(layer, probe_ratio=probe_ratio)
-
-    elif method == "none":
-        # 不做任何扰动，用于测试基准
-        return nullcontext()
-
-    else:
-        raise ValueError(f"Unknown pruning method: {method}")
-
 def dlp_score(args, model, tokenizer, alpha, device=torch.device("cuda:0")):
     use_cache = model.config.use_cache
     model.config.use_cache = False
@@ -339,9 +318,13 @@ def dlp_score(args, model, tokenizer, alpha, device=torch.device("cuda:0")):
     risk_k = args.risk_k
     risk_probe = args.risk_probe
     risk_decay = args.risk_decay
-    risk_nsamples = getattr(args, "risk_nsamples", min(args.nsamples, 16))
+    total_nsamples = getattr(args, "nsamples", args.num_examples)
+    risk_nsamples = getattr(args, "risk_nsamples", min(total_nsamples, 16))
 
     probe_method = getattr(args, "probe_method", "wanda")
+    attention_mask = cache.get("attention_mask", None)
+    position_ids = cache.get("position_ids", None)
+    is_opt = "opt" in args.base_model.lower()
 
     # PHASE 1: Compute the importance score for each weight in each layer
     for i in range(len(layers)):
@@ -361,14 +344,14 @@ def dlp_score(args, model, tokenizer, alpha, device=torch.device("cuda:0")):
         for name in subset:
             wrapped_layers[name] = WrappedGPT(subset[name])
 
-        def add_batch(name):
+        def add_batch(name, wrapped_layers_ref):
             def tmp(_, inp, out):
-                wrapped_layers[name].add_batch(inp[0].data, out.data)
+                wrapped_layers_ref[name].add_batch(inp[0].data, out.data)
             return tmp
 
         handles = []
         for name in wrapped_layers:
-            handles.append(subset[name].register_forward_hook(add_batch(name)))
+            handles.append(subset[name].register_forward_hook(add_batch(name, wrapped_layers)))
         for j in range(args.num_examples):
             with torch.no_grad():
                 outs[j] = layer(inps[j].unsqueeze(0), **cache)[0]
@@ -400,7 +383,7 @@ def dlp_score(args, model, tokenizer, alpha, device=torch.device("cuda:0")):
         risk_sum = torch.tensor(0.0, device=inps.device)
         w_sum = 0.0
 
-        current_risk_nsamples = min(risk_nsamples, args.nsamples)
+        current_risk_nsamples = min(risk_nsamples, total_nsamples, args.num_examples)
 
         for j in range(current_risk_nsamples):
             x0 = inps[j].unsqueeze(0)
@@ -522,6 +505,8 @@ def dlp_score_global(args, model, tokenizer, device=torch.device("cuda:0")):
         layers = model.model.layers
     elif "opt" in args.base_model:
         layers = model.model.decoder.layers
+    elif "Qwen" in args.base_model:
+        layers = model.transformer.h
     else:
         layers = model.model.layers
 
@@ -531,6 +516,19 @@ def dlp_score_global(args, model, tokenizer, device=torch.device("cuda:0")):
 
     all_layer_metric = []
     all_layer_numel = []
+    R_raw = []
+
+    risk_k = args.risk_k
+    risk_probe = args.risk_probe
+    risk_decay = args.risk_decay
+    total_nsamples = getattr(args, "nsamples", args.num_examples)
+    risk_nsamples = getattr(args, "risk_nsamples", min(total_nsamples, 16))
+    probe_method = getattr(args, "probe_method", "wanda")
+
+    attention_mask = cache.get("attention_mask", None)
+    position_ids = cache.get("position_ids", None)
+    is_opt = "opt" in args.base_model.lower()
+
     for i in range(len(layers)):
         layer = layers[i]
         subset = find_layers(layer)
@@ -550,15 +548,15 @@ def dlp_score_global(args, model, tokenizer, device=torch.device("cuda:0")):
         for name in subset:
             wrapped_layers[name] = WrappedGPT(subset[name])
 
-        def add_batch(name):
+        def add_batch(name, wrapped_layers_ref):
             def tmp(_, inp, out):
-                wrapped_layers[name].add_batch(inp[0].data, out.data)
+                wrapped_layers_ref[name].add_batch(inp[0].data, out.data)
 
             return tmp
 
         handles = []
         for name in wrapped_layers:
-            handles.append(subset[name].register_forward_hook(add_batch(name)))
+            handles.append(subset[name].register_forward_hook(add_batch(name, wrapped_layers)))
         for j in range(args.num_examples):
             with torch.no_grad():
                 outs[j] = layer(inps[j].unsqueeze(0), **cache)[0]
@@ -576,25 +574,86 @@ def dlp_score_global(args, model, tokenizer, device=torch.device("cuda:0")):
 
             layer_wmetric.append(W_metric)
 
-        for j in range(args.num_examples):
-            with torch.no_grad():
-                outs[j] = layer(inps[j].unsqueeze(0), **cache)[0]
-        inps, outs = outs, inps
         if args.layer == "dlpb":
             layer_wmetric = torch.cat([torch.flatten(x.cpu()) for x in layer_wmetric])
             attn_numel = torch.sum(layer_numel[:4]).item()
             attn_median = torch.mean(layer_wmetric[:attn_numel])
             ffn_median = torch.mean(layer_wmetric[attn_numel:])
-            all_layer_metric.append(torch.tensor([attn_median] * 4 + [ffn_median] * (len(layer_numel) - 4)))
+            layer_metric = torch.tensor([attn_median] * 4 + [ffn_median] * (len(layer_numel) - 4))
+            all_layer_metric.append(layer_metric)
         elif args.layer == "dlpc":
-            layer_wmetric = torch.tensor([torch.median(x).cpu().item() for x in layer_wmetric])
-            all_layer_metric.append(layer_wmetric)
+            layer_metric = torch.tensor([torch.median(x).cpu().item() for x in layer_wmetric])
+            all_layer_metric.append(layer_metric)
 
-    ## mean
+        j_end = min(len(layers) - 1, i + risk_k)
+        risk_sum = torch.tensor(0.0, device=inps.device)
+        w_sum = 0.0
+        current_risk_nsamples = min(risk_nsamples, total_nsamples, args.num_examples)
+
+        for j in range(current_risk_nsamples):
+            x0 = inps[j].unsqueeze(0)
+
+            base_outs = _forward_range(
+                layers, i, j_end, x0,
+                attention_mask=attention_mask, position_ids=position_ids, is_opt=is_opt
+            )
+
+            ctx = get_perturb_context(
+                layer=layers[i],
+                method=probe_method,
+                wrapped_layers=wrapped_layers,
+                probe_ratio=risk_probe
+            )
+
+            with ctx:
+                pert_outs = _forward_range(
+                    layers, i, j_end, x0,
+                    attention_mask=attention_mask, position_ids=position_ids, is_opt=is_opt
+                )
+
+            include_self = getattr(args, "risk_include_self", True)
+            if include_self:
+                start_t = 0
+            else:
+                start_t = 0 if len(base_outs) == 1 else 1
+
+            for t in range(start_t, len(base_outs)):
+                w = (risk_decay ** t)
+                d = _rel_l2(base_outs[t], pert_outs[t])
+                risk_sum += w * d
+                w_sum += w
+
+        R_i = 0.0 if w_sum == 0 else (risk_sum / w_sum).item()
+        R_raw.append(R_i)
+
+        for j in range(args.num_examples):
+            with torch.no_grad():
+                outs[j] = layer(inps[j].unsqueeze(0), **cache)[0]
+        inps, outs = outs, inps
+
+        del wrapped_layers
+        torch.cuda.empty_cache()
+
     all_layer_metric = torch.stack(all_layer_metric, dim=0)
-    all_layer_numel = torch.stack(all_layer_numel, dim=0)
-    layer_imp = 1 - all_layer_metric / torch.sum(all_layer_metric)  # layer imp
-    layer_imp = (layer_imp - layer_imp.min()) / (layer_imp.max() - layer_imp.min()) * args.Lamda * 2
+    all_layer_numel = torch.stack(all_layer_numel, dim=0).to(dtype=torch.float32)
+
+    D = all_layer_metric.cpu().numpy().astype(np.float32)
+    R = np.array(R_raw, dtype=np.float32)
+    if R.max() - R.min() > 1e-12:
+        Rn = (R - R.min()) / (R.max() - R.min())
+    else:
+        Rn = np.zeros_like(R)
+
+    D_hat = combine_metrics(
+        D=D,
+        Rn=Rn.reshape(-1, 1),
+        alpha=args.risk_alpha,
+        mode=args.combine_mode,
+    )
+
+    D_hat = torch.from_numpy(D_hat).to(dtype=torch.float32)
+    layer_imp = 1 - D_hat / torch.sum(D_hat)
+    layer_imp = (layer_imp - layer_imp.min()) / (layer_imp.max() - layer_imp.min() + 1e-12) * args.Lamda * 2
     print(layer_imp)
     layer_prune_numel = all_layer_numel * args.final_s + (torch.mean(layer_imp) - layer_imp) * torch.mean(
         all_layer_numel.float())
