@@ -107,6 +107,25 @@ def make_parser():
     parser.add_argument("-i", "--imp", default="none", type=str, help="imp type")
     parser.add_argument("--layer", default="uniform", type=str, help="layer sp")
 
+    # dlp / dlp_v1 controls
+    parser.add_argument("--sparsity_ratio", default=None, type=float, help="target sparsity used by dlp")
+    parser.add_argument("--nsamples", default=128, type=int, help="number of samples for probing")
+    parser.add_argument("--risk_nsamples", default=16, type=int, help="number of samples for risk estimation")
+    parser.add_argument("--risk_k", default=4, type=int, help="look-ahead layers for risk accumulation")
+    parser.add_argument("--risk_probe", default=0.02, type=float, help="temporary probe pruning ratio")
+    parser.add_argument("--risk_decay", default=0.8, type=float, help="decay for farther-layer drift")
+    parser.add_argument("--risk_alpha", default=0.5, type=float, help="weight of risk term in D/R fusion")
+    parser.add_argument("--combine_mode", default="prod", type=str,
+                        choices=["linear", "prod", "geom", "gate", "max", "exp"],
+                        help="metric fusion mode for D and normalized risk")
+    parser.add_argument("--probe_method", default="wanda", type=str,
+                        choices=["wanda", "magnitude", "none"],
+                        help="probe perturbation method")
+    parser.add_argument("--risk_include_self", action="store_true", default=True,
+                        help="include current layer drift in risk")
+    parser.add_argument("--risk_exclude_self", action="store_false", dest="risk_include_self",
+                        help="exclude current layer drift in risk")
+
     # \beta
     parser.add_argument("--lamda", default=1., type=float, help="lambda")
 
@@ -195,6 +214,9 @@ def load_model_tokenizer(args):
 
 if __name__ == '__main__':
     args = make_parser().parse_args()
+
+    if args.sparsity_ratio is None:
+        args.sparsity_ratio = args.final_s
 
     tokenizer, model = load_model_tokenizer(args)
 

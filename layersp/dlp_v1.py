@@ -318,10 +318,10 @@ def dlp_score(args, model, tokenizer, alpha, device=torch.device("cuda:0")):
     risk_k = args.risk_k
     risk_probe = args.risk_probe
     risk_decay = args.risk_decay
-    total_nsamples = getattr(args, "nsamples", args.num_examples)
-    risk_nsamples = getattr(args, "risk_nsamples", min(total_nsamples, 16))
+    total_nsamples = args.nsamples
+    risk_nsamples = args.risk_nsamples
 
-    probe_method = getattr(args, "probe_method", "wanda")
+    probe_method = args.probe_method
     attention_mask = cache.get("attention_mask", None)
     position_ids = cache.get("position_ids", None)
     is_opt = "opt" in args.base_model.lower()
@@ -420,7 +420,7 @@ def dlp_score(args, model, tokenizer, alpha, device=torch.device("cuda:0")):
 
             # 1. 确定起始索引 (start_t)
             # getattr 提供了默认值 True，防止 args 里没定义这个参数报错
-            include_self = getattr(args, "risk_include_self", True)
+            include_self = args.risk_include_self
 
             if include_self:
                 start_t = 0
@@ -521,9 +521,9 @@ def dlp_score_global(args, model, tokenizer, device=torch.device("cuda:0")):
     risk_k = args.risk_k
     risk_probe = args.risk_probe
     risk_decay = args.risk_decay
-    total_nsamples = getattr(args, "nsamples", args.num_examples)
-    risk_nsamples = getattr(args, "risk_nsamples", min(total_nsamples, 16))
-    probe_method = getattr(args, "probe_method", "wanda")
+    total_nsamples = args.nsamples
+    risk_nsamples = args.risk_nsamples
+    probe_method = args.probe_method
 
     attention_mask = cache.get("attention_mask", None)
     position_ids = cache.get("position_ids", None)
@@ -611,7 +611,7 @@ def dlp_score_global(args, model, tokenizer, device=torch.device("cuda:0")):
                     attention_mask=attention_mask, position_ids=position_ids, is_opt=is_opt
                 )
 
-            include_self = getattr(args, "risk_include_self", True)
+            include_self = args.risk_include_self
             if include_self:
                 start_t = 0
             else:
