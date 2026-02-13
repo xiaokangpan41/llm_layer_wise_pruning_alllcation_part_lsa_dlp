@@ -2,9 +2,26 @@ import time
 
 import torch
 from torch import nn
+import numpy as np
 
 from datas import get_examples
 from contextlib import contextmanager, nullcontext
+
+def _rel_l2(a, b, eps=1e-8):
+    """
+    计算相对 L2 误差。
+    返回 Tensor (GPU) 以避免打断流水线。
+    """
+    # 1. 强制转 float32 防止半精度溢出
+    a_f = a.float()
+    b_f = b.float()
+    # 2. 差异
+    diff = a_f - b_f
+    # 3. 使用高度优化的 linalg.vector_norm
+    # dim=None 表示打平计算整个 Tensor 的范数
+    num = torch.linalg.vector_norm(diff, ord=2)
+    den = torch.linalg.vector_norm(a_f, ord=2).clamp_min(eps)
+    return num / den
 
 def find_layers(module, layers=[nn.Linear], name=''):
     """
@@ -104,6 +121,52 @@ class WrappedGPT:
 
         inp = inp.type(torch.float32)
         self.scaler_row += torch.norm(inp, p=2, dim=1) ** 2 / self.nsamples
+
+def combine_metrics(D, Rn, alpha, mode="prod"):
+    """
+    将局部指标 D 和全局风险指标 Rn 结合的封装函数
+
+    Args:
+        D (np.ndarray): 原始离群值指标 (Difficulty)
+        Rn (np.ndarray): 归一化后的风险指标 (Normalized Risk, 0~1)
+        alpha (float): 结合系数 (Weight 或 Gain)
+        mode (str): 结合模式 ('linear', 'prod', 'geom', 'gate', 'max', 'exp')
+
+    Returns:
+        np.ndarray: 结合后的最终指标 D_hat
+    """
+    if mode == "linear":
+        # 线性加权: (1 - α) * D + α * Rn
+        return (1 - alpha) * D + alpha * Rn
+
+    elif mode == "prod":
+        # 增益乘法: D * (1 + α * Rn)
+        return D * (1 + alpha * Rn)
+
+    elif mode == "geom":
+        # 加权几何平均: D^(1-α) * (Rn)^α
+        # 使用 epsilon 防止 Rn 为 0 时结果坍缩
+        return np.power(D, 1 - alpha) * np.power(Rn + 1e-6, alpha)
+
+    elif mode == "gate":
+        # 软阈值保护 (Sigmoid Gating)
+        # k 控制陡峭度, tau 控制开启阈值
+        k, tau = 10, 0.5
+        gate = 1 / (1 + np.exp(-k * (Rn - tau)))
+        return D * (1 + alpha * gate)
+
+    elif mode == "max":
+        # 竞争模式: 取两者较大值
+        return np.maximum(D, alpha * Rn)
+
+    elif mode == "exp":
+        # 指数增强: D * exp(α * Rn)
+        return D * np.exp(alpha * Rn)
+
+    else:
+        # 默认回退到 prod 模式或抛出错误
+        print(f"[WARNING] Unknown combine_mode '{mode}', falling back to 'prod'.")
+        return D * (1 + alpha * Rn)
 
 @contextmanager
 def _perturb_layer_magnitude(layer: nn.Module, probe_ratio: float = 0.02):
@@ -402,13 +465,41 @@ def dlp_score(args, model, tokenizer, alpha, device=torch.device("cuda:0")):
                 risk_sum += w * d
                 w_sum += w
 
-    all_layer_ratio = torch.tensor(all_layer_ratio)
-    all_layer_ratio = 1 - all_layer_ratio / torch.sum(all_layer_ratio) # layer imp
+        if w_sum == 0:
+            R_i = 0.0
+        else:
+            # risk_sum 是 tensor, w_sum 是 float
+            R_i = (risk_sum / w_sum).item()
 
+        R_raw.append(R_i)
 
-    all_layer_ratio = (all_layer_ratio - all_layer_ratio.min()) / (all_layer_ratio.max() - all_layer_ratio.min()) * alpha * 2
+        del wrapped_layers
+        torch.cuda.empty_cache()
 
-    all_layer_ratio = args.final_s + torch.mean(all_layer_ratio) - all_layer_ratio
+        inps, outs = outs, inps
+
+    # Combine D and R into a single importance score for each layer
+    D = np.array(D_list, dtype=np.float32)
+    R = np.array(R_raw, dtype=np.float32)
+
+    if R.max() - R.min() > 1e-12:
+        Rn = (R - R.min()) / (R.max() - R.min())
+    else:
+        Rn = np.zeros_like(R)
+
+    D_hat = combine_metrics(
+        D=D, Rn=Rn, alpha=args.risk_alpha, mode=args.combine_mode
+    )
+
+    all_layer_ratio = D_hat.copy()
+
+    all_layer_ratio = ((all_layer_ratio - all_layer_ratio.min()) *
+                       (1.0 / (all_layer_ratio.max() - all_layer_ratio.min() + 1e-12) * args.Lamda * 2))
+    
+    all_layer_ratio = all_layer_ratio - np.mean(all_layer_ratio) + (1 - args.sparsity_ratio)
+
+    print("after adjustment", all_layer_ratio, "mean", np.mean(all_layer_ratio),
+          "max", np.max(all_layer_ratio), "min", np.min(all_layer_ratio))
 
     model.config.use_cache = use_cache
     torch.cuda.empty_cache()
