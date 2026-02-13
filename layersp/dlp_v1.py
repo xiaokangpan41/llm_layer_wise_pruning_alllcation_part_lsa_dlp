@@ -4,7 +4,7 @@ import torch
 from torch import nn
 
 from datas import get_examples
-
+from contextlib import contextmanager, nullcontext
 
 def find_layers(module, layers=[nn.Linear], name=''):
     """
@@ -105,6 +105,148 @@ class WrappedGPT:
         inp = inp.type(torch.float32)
         self.scaler_row += torch.norm(inp, p=2, dim=1) ** 2 / self.nsamples
 
+@contextmanager
+def _perturb_layer_magnitude(layer: nn.Module, probe_ratio: float = 0.02):
+    """
+    Temporarily zero out the smallest |w| weights in every nn.Linear in this layer.
+    This is ONLY for risk probing, not final pruning. 模拟“Magnitude Pruning 对后续的影响”。
+    """
+    backups = []
+    with torch.no_grad():
+        for m in layer.modules():
+            if isinstance(m, nn.Linear):
+                W = m.weight
+                backups.append((W, W.data.clone()))
+
+                flat = W.data.abs().view(-1)
+                k = int(probe_ratio * flat.numel())
+                if k <= 0:
+                    continue
+                thresh = torch.kthvalue(flat, k).values
+                mask = (W.data.abs() > thresh).to(W.data.dtype)
+                W.data.mul_(mask)
+    try:
+        yield
+    finally:
+        with torch.no_grad():
+            for W, orig in backups:
+                W.data.copy_(orig)
+
+@contextmanager
+def _perturb_layer_wanda(layer: nn.Module, wrapped_layers: dict, probe_ratio: float = 0.02):
+    """
+    Risk Probing (Wanda Variant):
+    临时屏蔽每一层中 Wanda Metric ( |W| * |X| ) 最小的权重。
+
+    Args:
+        layer: 当前层对象 (e.g., LlamaDecoderLayer)
+        wrapped_layers: 包含 scaler_row 的字典, key 是层内模块名 (e.g., "self_attn.q_proj")
+        probe_ratio: 扰动比例
+    """
+    backups = []
+
+    # 确保不计算梯度
+    with torch.no_grad():
+        # 我们使用 named_modules 来匹配 wrapped_layers 中的名字
+        for name, m in layer.named_modules():
+            if isinstance(m, nn.Linear):
+                # 1. 检查该层是否有对应的输入统计信息 (scaler)
+                if name not in wrapped_layers:
+                    continue
+
+                scaler = wrapped_layers[name].scaler_row
+
+                # 2. 准备数据
+                W = m.weight
+                backups.append((W, W.data.clone())) # 备份
+
+                # 3. 计算 Wanda Metric: |W| * sqrt(scaler)
+                # scaler 形状通常是 [in_features], 需要 reshape 为 [1, in_features] 进行广播
+                # 确保 scaler 和 W 在同一个 device
+                if scaler.device != W.device:
+                    scaler = scaler.to(W.device)
+
+                # Metric 计算 (Wanda 核心)
+                wanda_metric = W.data.abs() * torch.sqrt(scaler.reshape(1, -1))
+                flat_metric = wanda_metric.view(-1)
+
+                # 4. 确定阈值并生成 Mask
+                k = int(probe_ratio * flat_metric.numel())
+                if k > 0:
+                    # 找出第 k 小的值作为阈值
+                    thresh = torch.kthvalue(flat_metric, k).values
+
+                    # 生成 Mask (保留 Metric 大于阈值的权重)
+                    mask = (wanda_metric > thresh).to(W.data.dtype)
+
+                    # 5. 应用临时 Mask
+                    W.data.mul_(mask)
+
+    try:
+        yield
+    finally:
+        # 6. 恢复原始权重
+        with torch.no_grad():
+            for W, orig in backups:
+                W.data.copy_(orig)
+
+
+def get_perturb_context(layer, method, wrapped_layers=None, probe_ratio=0.02):
+    """
+    根据 method 返回对应的扰动上下文管理器。
+    支持: 'wanda', 'magnitude', 'none'
+    """
+    if method == "wanda":
+        if wrapped_layers is None:
+            raise ValueError("Wanda pruning requires 'wrapped_layers' to be passed.")
+        return _perturb_layer_wanda(layer, wrapped_layers, probe_ratio=probe_ratio)
+
+    elif method == "magnitude":
+        # Magnitude 不需要 wrapped_layers
+        return _perturb_layer_magnitude(layer, probe_ratio=probe_ratio)
+
+    elif method == "none":
+        # 不做任何扰动，用于测试基准
+        return nullcontext()
+
+    else:
+        raise ValueError(f"Unknown pruning method: {method}")
+
+def _forward_one_layer(layer, x, attention_mask=None, position_ids=None, is_opt=False):
+    if is_opt:
+        return layer(x, attention_mask=attention_mask)[0]
+    else:
+        return layer(x, attention_mask=attention_mask, position_ids=position_ids)[0]
+
+def _forward_range(layers, start, end, x, attention_mask=None, position_ids=None, is_opt=False):
+    # run layers[start..end] sequentially, return list of outputs after each layer
+    outs = []
+    h = x
+    for idx in range(start, end + 1):
+        h = _forward_one_layer(layers[idx], h, attention_mask, position_ids, is_opt=is_opt)
+        outs.append(h)
+    return outs  # length = end-start+1
+
+def get_perturb_context(layer, method, wrapped_layers=None, probe_ratio=0.02):
+    """
+    根据 method 返回对应的扰动上下文管理器。
+    支持: 'wanda', 'magnitude', 'none'
+    """
+    if method == "wanda":
+        if wrapped_layers is None:
+            raise ValueError("Wanda pruning requires 'wrapped_layers' to be passed.")
+        return _perturb_layer_wanda(layer, wrapped_layers, probe_ratio=probe_ratio)
+
+    elif method == "magnitude":
+        # Magnitude 不需要 wrapped_layers
+        return _perturb_layer_magnitude(layer, probe_ratio=probe_ratio)
+
+    elif method == "none":
+        # 不做任何扰动，用于测试基准
+        return nullcontext()
+
+    else:
+        raise ValueError(f"Unknown pruning method: {method}")
 
 def dlp_score(args, model, tokenizer, alpha, device=torch.device("cuda:0")):
     use_cache = model.config.use_cache
@@ -127,7 +269,18 @@ def dlp_score(args, model, tokenizer, alpha, device=torch.device("cuda:0")):
     with torch.no_grad():
         inps, outs, cache = prepare_calibration_input(model, layers, dataloader, device)
 
-    all_layer_ratio = []
+    D_list = []
+    R_raw = []
+
+    # --- Hyperparameters ---
+    risk_k = args.risk_k
+    risk_probe = args.risk_probe
+    risk_decay = args.risk_decay
+    risk_nsamples = getattr(args, "risk_nsamples", min(args.nsamples, 16))
+
+    probe_method = getattr(args, "probe_method", "wanda")
+
+    # PHASE 1: Compute the importance score for each weight in each layer
     for i in range(len(layers)):
         layer = layers[i]
         subset = find_layers(layer)
@@ -148,7 +301,6 @@ def dlp_score(args, model, tokenizer, alpha, device=torch.device("cuda:0")):
         def add_batch(name):
             def tmp(_, inp, out):
                 wrapped_layers[name].add_batch(inp[0].data, out.data)
-
             return tmp
 
         handles = []
@@ -176,9 +328,79 @@ def dlp_score(args, model, tokenizer, alpha, device=torch.device("cuda:0")):
         inps, outs = outs, inps
 
         layer_wmetric = torch.cat([torch.flatten(x.cpu()) for x in layer_wmetric])
-        all_layer_ratio.append(torch.median(layer_wmetric.float()).abs())
-
+        D_list.append(torch.median(layer_wmetric.float()).abs())
+        
         torch.cuda.empty_cache()
+
+        # PHASE 2: Compute the risk score for each layer based on the importance scores
+        j_end = min(len(layers) - 1, i + risk_k)
+        risk_sum = torch.tensor(0.0, device=inps.device)
+        w_sum = 0.0
+
+        current_risk_nsamples = min(risk_nsamples, args.nsamples)
+
+        for j in range(current_risk_nsamples):
+            x0 = inps[j].unsqueeze(0)
+
+            # ---------------------------------------------------------------------
+            # A. Base Run (基准运行)
+            # ---------------------------------------------------------------------
+            # 统一使用 j_end，_forward_range 会返回从 i 到 j_end 的所有层输出
+            # base_outs[0] 是当前层 i 的输出，base_outs[1] 是 i+1 层输出...
+            base_outs = _forward_range(
+                layers, i, j_end, x0,
+                attention_mask=attention_mask, position_ids=position_ids, is_opt=is_opt
+            )
+
+            # ---------------------------------------------------------------------
+            # B. Perturbed Run (扰动运行)
+            # ---------------------------------------------------------------------
+            ctx = get_perturb_context(
+                layer=layers[i],
+                method=probe_method,
+                wrapped_layers=wrapped_layers,
+                probe_ratio=risk_probe
+            )
+
+            with ctx:
+                pert_outs = _forward_range(
+                    layers, i, j_end, x0,
+                    attention_mask=attention_mask, position_ids=position_ids, is_opt=is_opt
+                )
+
+            # ---------------------------------------------------------------------
+            # C. Calculate Drift (计算漂移 - 健壮版)
+            # ---------------------------------------------------------------------
+
+            # 1. 确定起始索引 (start_t)
+            # getattr 提供了默认值 True，防止 args 里没定义这个参数报错
+            include_self = getattr(args, "risk_include_self", True)
+
+            if include_self:
+                start_t = 0
+            else:
+                # 如果不包含当前层，通常从 t=1 (下一层) 开始
+                # 【关键兜底】：如果是最后一层 (len==1)，没有下一层可看，必须强制看自己 (t=0)
+                # 否则 w_sum 为 0，Risk 为 0，导致最后一层被误剪
+                if len(base_outs) == 1:
+                    start_t = 0
+                else:
+                    start_t = 1
+
+            # 2. 统一循环累加
+            # len(base_outs) 自动适应了是中间层还是最后一层
+            for t in range(start_t, len(base_outs)):
+                # t 代表距离当前层的步数 (0=当前, 1=下一层...)
+
+                # 计算权重: 距离越远，权重越小 (decay^0=1, decay^1=0.8...)
+                w = (risk_decay ** t)
+
+                # 计算两组输出的相对 L2 误差
+                d = _rel_l2(base_outs[t], pert_outs[t])
+
+                # 累加加权误差
+                risk_sum += w * d
+                w_sum += w
 
     all_layer_ratio = torch.tensor(all_layer_ratio)
     all_layer_ratio = 1 - all_layer_ratio / torch.sum(all_layer_ratio) # layer imp
