@@ -93,6 +93,7 @@ def make_parser():
 
     parser.add_argument("-p", "--pruner", default=None, type=str, help="pruner")
     parser.add_argument("-s", "--final_s", default=0., type=float, help="final sparsity")
+    parser.add_argument("--sparsity_ratio", default=None, type=float, help="target sparsity (alias of final_s)")
 
     parser.add_argument('--base_model', type=str, help='model name')
     parser.add_argument('--save_path', type=str, default=None,
@@ -202,8 +203,6 @@ def make_parser():
     parser.add_argument('--risk_decay', type=float, default=0.9, help='Exponential decay factor for downstream layers when aggregating propagation risk')
     parser.add_argument('--risk_alpha', type=float, default=0.1, help='Weight for propagation risk in D_hat = (1-alpha) * D + alpha * R')
     parser.add_argument('--probe_method', type=str, default='magnitude', choices=['wanda', 'magnitude'], help='Method used for risk probing (perturbation) inside prune_wanda_outlier_plus.')
-    parser.add_argument("--lamda", default=1., type=float, help="lambda")
-    parser.add_argument("--block", default=0, type=int, help='use block')
 
     return parser
 
