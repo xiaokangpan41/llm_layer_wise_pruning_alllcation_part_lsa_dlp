@@ -339,6 +339,266 @@ def blk_score(args, model, tokenizer, alpha, device=torch.device("cuda:0")):
     print(all_layer_ratio)
     return all_layer_ratio.tolist()
 
+def blk_score_with_risk(args, model, tokenizer, alpha, device=torch.device("cuda:0")):
+    # --- [1. 参数初始化] ---
+    use_cache = model.config.use_cache
+    model.config.use_cache = False
+    
+    # Risk 相关参数 (建议在 args 中定义，这里提供默认值)
+    risk_k         = args.risk_k
+    risk_alpha     = args.risk_alpha
+    risk_decay     = args.risk_decay
+    risk_probe     = args.risk_probe
+    risk_nsamples  = args.risk_nsamples
+    combine_mode   = args.combine_mode
+    include_self   = args.risk_include_self
+    Lambda = args.Lambda
+    print(f"Risk Config: k={risk_k}, alpha={risk_alpha}, mode={combine_mode}, probe={risk_probe}")
+
+    # --- [2. 数据准备] ---
+    print("loading calibration data")
+    dataloader = get_examples("c4", tokenizer, n_samples=args.num_examples, seq_len=2048)
+    
+    # 识别模型类型并获取 Layers
+    if "Llama" in args.base_model or "llama" in args.base_model:
+        layers = model.model.layers
+        is_opt = False
+    elif "opt" in args.base_model:
+        layers = model.model.decoder.layers
+        is_opt = True
+    elif "Qwen" in args.base_model:
+        layers = model.transformer.h
+        is_opt = False
+    else:
+        layers = model.model.layers
+        is_opt = False
+
+    start_time = time.time()
+    # 预计算第一层的输入
+    with torch.no_grad():
+        inps, outs, cache = prepare_calibration_input(model, layers, dataloader, device)
+
+    # 存储原始指标
+    D_raw_list = [] # 本地 LSA 指标 (Difficulty)
+    R_raw_list = [] # 全局风险指标 (Risk)
+
+    # --- [3. 主循环：逐层扫描] ---
+    for i in range(len(layers)):
+        layer = layers[i]
+        subset = find_layers(layer)
+
+        # 处理多卡/设备映射
+        if f"model.layers.{i}" in model.hf_device_map:
+            dev = model.hf_device_map[f"model.layers.{i}"]
+            inps, outs = inps.to(dev), outs.to(dev)
+            for key, value in cache.items():
+                if isinstance(value, tuple):
+                    cache[key] = tuple([v.to(dev) for v in value])
+                else:
+                    cache[key] = value.to(dev)
+        
+        # 3.1 包装层并挂载 Hook
+        wrapped_layers = {}
+        for name in subset:
+            wrapped_layers[name] = BlockWanda(subset[name])
+
+        def add_batch(name):
+            def tmp(_, inp, out):
+                wrapped_layers[name].add_batch(inp[0].data, out.data)
+            return tmp
+
+        handles = []
+        for name in wrapped_layers:
+            handles.append(subset[name].register_forward_hook(add_batch(name)))
+        
+        # 3.2 第一次 Forward (Pass 1): 收集 Hessian (self.H)
+        # 这一步是为了填满 BlockWanda 中的 self.H，供 blk_s 和 Risk Probe 使用
+        for j in range(args.num_examples):
+            with torch.no_grad():
+                if is_opt:
+                    outs[j] = layer(inps[j].unsqueeze(0), attention_mask=cache.get('attention_mask'))[0]
+                else:
+                    outs[j] = layer(inps[j].unsqueeze(0), **cache)[0]
+        
+        for h in handles: h.remove()
+
+        print(f"Analyzing layer {i} / {len(layers)} ...")
+
+        # ------------------------------------------------------
+        # [A] 准备 Probe 数据
+        # ------------------------------------------------------
+        # Wanda Probe 需要 scaler_row (diag(X^TX))。
+        # BlockWanda 已经计算了 H (X^TX)，我们直接提取对角线即可。
+        for name in subset:
+            wrapped_layers[name].scaler_row = torch.diag(wrapped_layers[name].H)
+
+        # ------------------------------------------------------
+        # [B] 计算 Risk Metric (Global Propagation)
+        # ------------------------------------------------------
+        risk_score = 0.0
+        # 只有当 alpha > 0 且不是最后一层时，才有计算传播风险的意义
+        # (最后一层也可以算，看是否 include_self)
+        if risk_alpha > 0:
+            current_risk_samples = min(risk_nsamples, args.num_examples)
+            # 确定观察窗口: [i, i + k]
+            j_end = min(len(layers) - 1, i + risk_k)
+            
+            total_weighted_drift = 0.0
+            total_weight = 0.0
+
+            # 遍历样本
+            for j in range(current_risk_samples):
+                x0 = inps[j].unsqueeze(0) # 当前层输入
+
+                # 1. 基准运行 (Base Run)
+                base_outs = _forward_range(layers, i, j_end, x0, is_opt=is_opt, **cache)
+
+                # 2. 扰动运行 (Perturbed Run)
+                # 使用上下文管理器临时 Mask 掉当前层 1% 的权重
+                ctx = get_perturb_context(
+                    layer=layers[i], 
+                    method="wanda", 
+                    wrapped_layers=wrapped_layers, 
+                    probe_ratio=risk_probe
+                )
+                
+                with ctx:
+                    pert_outs = _forward_range(layers, i, j_end, x0, is_opt=is_opt, **cache)
+                
+                # 3. 计算加权漂移 (Weighted Drift)
+                # 确定起始比较层 t
+                # base_outs[0] 是 Layer i 的输出
+                # base_outs[1] 是 Layer i+1 的输出
+                if include_self:
+                    start_t = 0
+                else:
+                    # 如果只有一层(即最后一层)，强制设为0，否则循环不执行，Risk为0
+                    start_t = 0 if len(base_outs) == 1 else 1
+
+                for t in range(start_t, len(base_outs)):
+                    # t 表示距离当前层的深度
+                    w = risk_decay ** t
+                    
+                    # 使用你提供的 _rel_l2 计算误差
+                    drift = _rel_l2(base_outs[t], pert_outs[t])
+                    
+                    total_weighted_drift += w * drift
+                    total_weight += w
+            
+            # 计算平均 Risk
+            if total_weight > 0:
+                # 注意：这里 drift 已经是 tensor 了，取 item 转 float
+                risk_score = (total_weighted_drift / total_weight).item()
+        
+        R_raw_list.append(risk_score)
+
+        # ------------------------------------------------------
+        # [C] 计算 Local Metric (D) - 使用原 blk_s
+        # ------------------------------------------------------
+        layer_local_metrics = []
+        for name in subset:
+            # blk_s 计算的是重建误差 (Reconstruction Error)
+            W_metric = wrapped_layers[name].blk_s(block_size=args.block, s=args.resp)
+            
+            # 必须在 Risk 计算完之后再 free，因为 Risk 上下文需要 scaler_row
+            wrapped_layers[name].free() 
+            layer_local_metrics.append(W_metric)
+
+        # 聚合当前层所有模块的误差 (mean)
+        # 将 list of tensors 展平 -> cat -> mean -> abs
+        flat_metrics = torch.cat([torch.flatten(x.cpu()) for x in layer_local_metrics])
+        local_score_val = torch.mean(flat_metrics.float()).abs().item()
+        D_raw_list.append(local_score_val)
+
+        # 3.3 第二次 Forward: 为下一层准备输入
+        # 因为 hooks 被移除了，所以得重新跑一遍纯净的 forward 来拿 outputs
+        for j in range(args.num_examples):
+             with torch.no_grad():
+                if is_opt:
+                    outs[j] = layer(inps[j].unsqueeze(0), attention_mask=cache.get('attention_mask'))[0]
+                else:
+                    outs[j] = layer(inps[j].unsqueeze(0), **cache)[0]
+        
+        # Swap inputs
+        inps, outs = outs, inps
+        torch.cuda.empty_cache()
+
+    # --- [4. 指标融合与比例分配] ---
+    
+    # 转换为 Numpy 数组以便使用 combine_metrics
+    D = np.array(D_raw_list, dtype=np.float32) # Shape: [num_layers]
+    R = np.array(R_raw_list, dtype=np.float32) # Shape: [num_layers]
+
+    print("\n--- Metrics Summary ---")
+    print(f"D (Local) range: {D.min():.4e} ~ {D.max():.4e}")
+    print(f"R (Risk)  range: {R.min():.4e} ~ {R.max():.4e}")
+
+    # --- [4. 归一化与方向对齐] ---
+
+    # 4.1 归一化 D (保持方向: D 越大 -> 这一层越"重" -> 我们希望剪越多)
+    if D.max() - D.min() > 1e-9:
+        D_norm = (D - D.min()) / (D.max() - D.min())
+    else:
+        D_norm = np.zeros_like(D)
+
+    # 4.2 归一化 R 并反转 (Risk 越大 -> 越危险 -> 剪越少)
+    # 我们定义 R_safe (安全性): Risk 越低 -> Safety 越高 -> 我们希望剪越多
+    if R.max() - R.min() > 1e-9:
+        R_norm = (R - R.min()) / (R.max() - R.min())
+    else:
+        R_norm = np.zeros_like(R)
+    
+    # 【关键修改】反转方向：R_safe 越高代表越安全，方向与 D 一致了
+    R_safe = 1.0 - R_norm
+
+    # --- [5. 线性结合] ---
+
+    # 线性结合：总分 = LSA分数(想多剪) + alpha * 安全分数(想多剪)
+    # Combined Score 越高，代表这一层 "既是大层，又很安全"，最适合被剪掉
+    combined_score_numpy = combine_metrics(
+        D=D_norm, 
+        Rn=R_safe, 
+        alpha=args.risk_alpha, 
+        mode=args.combine_mode 
+    )
+
+    # 转回 Tensor
+    all_layer_metric_final = torch.from_numpy(combined_score_numpy).to(device)
+
+    # --- [6. 最终计算 Sparsity Ratio] ---
+
+    # 1. 再次归一化 Combined Score 到 [0, 1]
+    metrics_norm = (all_layer_metric_final - all_layer_metric_final.min()) / \
+                   (all_layer_metric_final.max() - all_layer_metric_final.min() + 1e-8)
+
+    # 2. 计算 Imp (Importance)
+    # 回顾分配公式: Ratio = Base + (Mean_Imp - Imp)
+    # 我们希望: Score 高 (Metrics_Norm 大) -> Ratio 高 (剪得多)
+    # 要让 Ratio 变大，(Mean - Imp) 必须是正数 -> Imp 必须小
+    # 所以: Imp 与 Score 成反比
+    layer_imp = 1.0 - metrics_norm 
+
+    # 3. 调整强度 (Lambda 参数控制方差)
+    # 这里的 Lambda 是函数入参 (控制层间差异幅度)
+    layer_imp = (layer_imp - layer_imp.min()) / \
+                (layer_imp.max() - layer_imp.min() + 1e-8) * Lambda * 2 
+
+    # 4. 分配稀疏度
+    # 验证逻辑: 
+    #   High D / High Safety -> High Score -> Low Imp -> (Mean - Low) > 0 -> Ratio 增加 (剪得多) ✅
+    #   Low D / High Risk    -> Low Score  -> High Imp -> (Mean - High) < 0 -> Ratio 减少 (剪得少) ✅
+    all_layer_ratio = args.final_s + torch.mean(layer_imp) - layer_imp
+
+    # 5. 截断保护
+    all_layer_ratio = torch.clamp(all_layer_ratio, 0.0, 1.0)
+
+    model.config.use_cache = use_cache
+    torch.cuda.empty_cache()
+
+    end_time = time.time()
+    print("time_cost: %.5f sec" % (end_time - start_time))
+    
+    return all_layer_ratio.tolist()
 
 ### block?? multiply??
 def blk_score_global(args, model, tokenizer, device=torch.device("cuda:0")):
