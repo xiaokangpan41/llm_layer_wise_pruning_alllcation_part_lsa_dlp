@@ -21,7 +21,7 @@ echo "Starting Baseline Run (Fixed)..."
     --base_model "$MODEL" \
     --sparsity_ratio 0.7 \
     --pruner wanda \
-    --layer lsa \
+    --layer lsav1 \
     --num_examples 128 \
     --tasks wikitext \
     --fp16 \

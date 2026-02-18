@@ -17,20 +17,20 @@ echo "Model: $MODEL_PATH"
 # 关键参数说明：
 # --python: 指定 subprocess 调用的 python 解释器，保持环境一致
 # --pruner wanda: 对应你手动运行的 pruner
-# --layer lsa: 对应你手动运行的 layer
+# --layer lsav1: 对应你手动运行的 layer
 # --fixed_arg: 用于传递 optuna 脚本中未定义但 main.py 需要的参数 (如 --block 0)
 
 $PYTHON_EXEC "$OPTUNA_SCRIPT" \
     --python "$PYTHON_EXEC" \
     --base_model "$MODEL_PATH" \
     --main_script "$MAIN_SCRIPT" \
-    --study_name "wanda_lsa_search_v1" \
+    --study_name "wanda_lsa_search_v2" \
     --storage "sqlite:///optuna_wanda.db" \
     --n_trials 50 \
     --timeout 7200 \
     --final_s 0.7 \
     --pruner "wanda" \
-    --layer "lsa" \
+    --layer "lsav1" \
     --num_examples 128 \
     --tasks "wikitext" \
     --fp16 \

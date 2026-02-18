@@ -5,7 +5,7 @@ from .er import ER
 from .atp import ATP
 from .alphapruning import AlphaPruning
 from .lod import lod_cal
-
+from .blk_v1 import BLK_v1
 
 class Uniform:
     def __init__(self, model, tokenizer):

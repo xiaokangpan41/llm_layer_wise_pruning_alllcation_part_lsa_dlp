@@ -826,7 +826,7 @@ def blk_score_global(args, model, tokenizer, device=torch.device("cuda:0")):
     return all_layer_ratio.tolist()
 
 
-class BLK:
+class BLK_v1:
     def __init__(self, model, tokenizer):
         self.model = model
         self.tokenizer = tokenizer

@@ -29,12 +29,12 @@ python $SEARCH_SCRIPT \
     --n_trials 50 \
     --timeout 7200 \
     \
-    --final_s 0.7 \
+    --final_s 0.1 \
     --pruner wanda \
     --layer lsa \
     --num_examples 128 \
     --tasks wikitext \
     \
-    --fixed_arg "--block 128" \
-    # --fixed_arg "--deepsparse" \
-    # --fixed_arg "--onnx_export_path ./Llama-2-7B/chat-onnx"
+    --fixed_arg "--block 0" \
+    --fixed_arg "--deepsparse" \
+    --fixed_arg "--onnx_export_path ./Llama-2-7B/chat-onnx"

@@ -10,6 +10,7 @@ from pruner import *
 from layersp import *
 from lm_eval import tasks, evaluator
 
+from layersp.blk_v1 import BLK_v1
 
 np.random.seed(0)
 torch.manual_seed(0)
@@ -208,7 +209,7 @@ def load_model_tokenizer(args):
 
 if __name__ == '__main__':
     args = make_parser().parse_args()
-
+    print(args)
     tokenizer, model = load_model_tokenizer(args)
 
     pruner_dic = {"llm": LLMPruner,
@@ -220,6 +221,7 @@ if __name__ == '__main__':
     layer_sp_dic = {"uniform": Uniform, "owl": OWL, "owlb": OWL, "owlc": OWL,
                     "dlp": DLP, "dlpb": DLP, "dlpc": DLP,
                     "lsa": BLK, "lsab": BLK, "lsac": BLK,
+                    "lsav1": BLK_v1,
                     "atp": ATP, "alpha": AlphaPruning,
                     "er": ER, "erk": ER}
 
