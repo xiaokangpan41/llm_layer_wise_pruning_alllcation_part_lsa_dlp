@@ -35,8 +35,8 @@ def parse_args():
     parser.add_argument("--batch_size", type=str, default=None)
     parser.add_argument("--device", type=str, default=None)
 
-    parser.add_argument("--lamda_min", type=float, default=0.14)
-    parser.add_argument("--lamda_max", type=float, default=0.22)
+    # parser.add_argument("--lamda_min", type=float, default=0.14)
+    # parser.add_argument("--lamda_max", type=float, default=0.22)
 
     parser.add_argument(
         "--fixed_arg",
@@ -103,20 +103,18 @@ def main():
         fixed_cli.extend(shlex.split(fragment))
 
     def objective(trial):
-        probe_method = trial.suggest_categorical("probe_method", ["wanda", "magnitude"])
-        include_self = trial.suggest_categorical("risk_include_self", [True, False])
-        risk_k = trial.suggest_int("risk_k", 1, 6)
+        probe_method = trial.suggest_categorical("probe_method", ["magnitude"])
+        include_self = trial.suggest_categorical("risk_include_self", [False])
+        risk_k = trial.suggest_int("risk_k", 1, 3)
         risk_probe = trial.suggest_float("risk_probe", 0.01, 0.6)
-        risk_decay = trial.suggest_float("risk_decay", 0.1, 1.0)
-        combine_mode = trial.suggest_categorical("combine_mode", ["prod", "exp", "linear"])
-
-        if combine_mode == "linear":
-            risk_alpha = trial.suggest_float("alpha_linear", 0.01, 0.5)
-        else:
-            risk_alpha = trial.suggest_float("alpha_nonlinear", 0.01, 3.0, log=True)
-
-        lamda = trial.suggest_float("Lamda", args.lamda_min, args.lamda_max)
-
+        risk_decay = trial.suggest_float("risk_decay", 0.1, 1)
+        combine_mode = trial.suggest_categorical("combine_mode", ["linear"])
+        Lamda = trial.suggest_float("Lamda", 0.01, 0.3)
+        # if combine_mode == "linear":
+        #     risk_alpha = trial.suggest_float("alpha_linear", 0.01, 0.5)
+        # else:
+        #     risk_alpha = trial.suggest_float("alpha_nonlinear", 0.01, 3.0, log=True)
+        risk_alpha = trial.suggest_float("alpha_linear", 0.01, 0.5)
         trial_uid = str(uuid.uuid4())[:8]
         trial_id = trial.number
         result_file = dir_results / f"trial_{trial_id}_{trial_uid}.json"
@@ -151,7 +149,7 @@ def main():
             "--probe_method",
             probe_method,
             "--Lamda",
-            str(lamda),
+            str(Lamda),
             "--output_path",
             str(result_file),
         ]
@@ -171,7 +169,7 @@ def main():
         env["PYTHONUNBUFFERED"] = "1"
 
         print(
-            f"[Trial {trial_id}] start | Lamda={lamda:.5f} | mode={combine_mode} | "
+            f"[Trial {trial_id}] start | Lamda={Lamda:.5f} | mode={combine_mode} | "
             f"k={risk_k} probe={risk_probe:.4f} decay={risk_decay:.4f} alpha={risk_alpha:.4f}"
         )
 

@@ -1,18 +1,49 @@
 import math
 import time
-
+import numpy as np  
 import torch
 import transformers
 from torch import nn
 
 from datas import get_examples
-
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
 
 # -----------------------------------------------------------------------------
 # 1. 定义探针工具 (放在 blk_score 之前)
 # -----------------------------------------------------------------------------
+def _rel_l2(a, b, eps=1e-8):
+    """
+    计算相对 L2 误差。
+    返回 Tensor (GPU) 以避免打断流水线。
+    """
+    # 1. 强制转 float32 防止半精度溢出
+    a_f = a.float()
+    b_f = b.float()
+    # 2. 差异
+    diff = a_f - b_f
+    # 3. 使用高度优化的 linalg.vector_norm
+    # dim=None 表示打平计算整个 Tensor 的范数
+    num = torch.linalg.vector_norm(diff, ord=2)
+    den = torch.linalg.vector_norm(a_f, ord=2).clamp_min(eps)
+    return num / den
+
+
+def _forward_one_layer(layer, x, attention_mask=None, position_ids=None, is_opt=False):
+    if is_opt:
+        return layer(x, attention_mask=attention_mask)[0]
+    else:
+        return layer(x, attention_mask=attention_mask, position_ids=position_ids)[0]
+
+def _forward_range(layers, start, end, x, attention_mask=None, position_ids=None, is_opt=False):
+    # run layers[start..end] sequentially, return list of outputs after each layer
+    outs = []
+    h = x
+    for idx in range(start, end + 1):
+        h = _forward_one_layer(layers[idx], h, attention_mask, position_ids, is_opt=is_opt)
+        outs.append(h)
+    return outs  # length = end-start+1
+
 
 @contextmanager
 def _perturb_layer_wanda(layer: nn.Module, wrapped_layers: dict, probe_ratio: float = 0.01):
@@ -80,6 +111,81 @@ def _perturb_layer_magnitude(layer: nn.Module, probe_ratio: float = 0.01):
         with torch.no_grad():
             for W, orig in backups:
                 W.data.copy_(orig)
+
+
+def get_perturb_context(layer, method, wrapped_layers=None, probe_ratio=0.02):
+    """
+    根据 method 返回对应的扰动上下文管理器。
+    支持: 'wanda', 'magnitude', 'none'
+    """
+    if method == "wanda":
+        if wrapped_layers is None:
+            raise ValueError("Wanda pruning requires 'wrapped_layers' to be passed.")
+        return _perturb_layer_wanda(layer, wrapped_layers, probe_ratio=probe_ratio)
+
+    elif method == "magnitude":
+        # Magnitude 不需要 wrapped_layers
+        return _perturb_layer_magnitude(layer, probe_ratio=probe_ratio)
+
+    elif method == "none":
+        # 不做任何扰动，用于测试基准
+        return nullcontext()
+
+    else:
+        raise ValueError(f"Unknown pruning method: {method}")
+
+
+
+def combine_metrics(D, Rn, alpha, mode="prod"):
+    """
+    将局部指标 D 和全局风险指标 Rn 结合的封装函数
+
+    Args:
+        D (np.ndarray): 原始离群值指标 (Difficulty)
+        Rn (np.ndarray): 归一化后的风险指标 (Normalized Risk, 0~1)
+        alpha (float): 结合系数 (Weight 或 Gain)
+        mode (str): 结合模式 ('linear', 'prod', 'geom', 'gate', 'max', 'exp')
+
+    Returns:
+        np.ndarray: 结合后的最终指标 D_hat
+    """
+    if mode == "linear":
+        # 线性加权: (1 - α) * D + α * Rn
+        return (1 - alpha) * D + alpha * Rn
+
+    elif mode == "prod":
+        # 增益乘法: D * (1 + α * Rn)
+        return D * (1 + alpha * Rn)
+
+    elif mode == "geom":
+        # 加权几何平均: D^(1-α) * (Rn)^α
+        # 使用 epsilon 防止 Rn 为 0 时结果坍缩
+        return np.power(D, 1 - alpha) * np.power(Rn + 1e-6, alpha)
+
+    elif mode == "gate":
+        # 软阈值保护 (Sigmoid Gating)
+        # k 控制陡峭度, tau 控制开启阈值
+        k, tau = 10, 0.5
+        gate = 1 / (1 + np.exp(-k * (Rn - tau)))
+        return D * (1 + alpha * gate)
+
+    elif mode == "max":
+        # 竞争模式: 取两者较大值
+        return np.maximum(D, alpha * Rn)
+
+    elif mode == "exp":
+        # 指数增强: D * exp(α * Rn)
+        return D * np.exp(alpha * Rn)
+
+    else:
+        # 默认回退到 prod 模式或抛出错误
+        print(f"[WARNING] Unknown combine_mode '{mode}', falling back to 'prod'.")
+        return D * (1 + alpha * Rn)
+
+
+# -----------------------------------------------------------------------------
+# 1. end
+# -----------------------------------------------------------------------------
 
 
 
@@ -339,6 +445,7 @@ def blk_score(args, model, tokenizer, alpha, device=torch.device("cuda:0")):
     print(all_layer_ratio)
     return all_layer_ratio.tolist()
 
+
 def blk_score_with_risk(args, model, tokenizer, alpha, device=torch.device("cuda:0")):
     # --- [1. 参数初始化] ---
     use_cache = model.config.use_cache
@@ -353,7 +460,7 @@ def blk_score_with_risk(args, model, tokenizer, alpha, device=torch.device("cuda
     combine_mode   = args.combine_mode
     include_self   = args.risk_include_self
     Lambda = args.Lambda
-    print(f"Risk Config: k={risk_k}, alpha={risk_alpha}, mode={combine_mode}, probe={risk_probe}")
+    # print(f"Risk Config: k={risk_k}, alpha={risk_alpha}, mode={combine_mode}, probe={risk_probe}")
 
     # --- [2. 数据准备] ---
     print("loading calibration data")
@@ -600,6 +707,8 @@ def blk_score_with_risk(args, model, tokenizer, alpha, device=torch.device("cuda
     
     return all_layer_ratio.tolist()
 
+
+
 ### block?? multiply??
 def blk_score_global(args, model, tokenizer, device=torch.device("cuda:0")):
     use_cache = model.config.use_cache
@@ -727,7 +836,7 @@ class BLK:
     def get_layer_sp(self, args):
         self.alpha[0] = args.Lamda
         if args.layer == 'lsa':
-            return blk_score(args, self.model, self.tokenizer, self.alpha[int(args.final_s * 10)],
+            return blk_score_with_risk(args, self.model, self.tokenizer, self.alpha[int(args.final_s * 10)],
                              device=self.model.device)
         elif args.layer == "lsab" or args.layer == "lsac":
             return blk_score_global(args, self.model, self.tokenizer,

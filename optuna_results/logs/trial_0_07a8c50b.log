@@ -1,0 +1,274 @@
+
+Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]
+Loading checkpoint shards:  50%|█████     | 1/2 [00:04<00:04,  4.36s/it]
+Loading checkpoint shards: 100%|██████████| 2/2 [00:05<00:00,  2.76s/it]
+Loading checkpoint shards: 100%|██████████| 2/2 [00:05<00:00,  3.00s/it]
+loading calibdation data
+
+Generating train split:   0%|          | 0/356317 [00:00<?, ? examples/s]
+Generating train split:  10%|█         | 36862/356317 [00:00<00:00, 332099.89 examples/s]
+Generating train split:  27%|██▋       | 95787/356317 [00:00<00:00, 450646.60 examples/s]
+Generating train split:  45%|████▍     | 159772/356317 [00:00<00:00, 505586.11 examples/s]
+Generating train split:  63%|██████▎   | 223006/356317 [00:00<00:00, 529427.66 examples/s]
+Generating train split:  81%|████████  | 286955/356317 [00:00<00:00, 542232.35 examples/s]
+Generating train split:  96%|█████████▌| 341256/356317 [00:00<00:00, 539276.02 examples/s]
+Generating train split: 100%|██████████| 356317/356317 [00:00<00:00, 517037.24 examples/s]
+dataset loading complete
+get layer sp layer 0
+get layer sp layer 1
+get layer sp layer 2
+get layer sp layer 3
+get layer sp layer 4
+get layer sp layer 5
+get layer sp layer 6
+get layer sp layer 7
+get layer sp layer 8
+get layer sp layer 9
+get layer sp layer 10
+get layer sp layer 11
+get layer sp layer 12
+get layer sp layer 13
+get layer sp layer 14
+get layer sp layer 15
+get layer sp layer 16
+get layer sp layer 17
+get layer sp layer 18
+get layer sp layer 19
+get layer sp layer 20
+get layer sp layer 21
+get layer sp layer 22
+get layer sp layer 23
+get layer sp layer 24
+get layer sp layer 25
+get layer sp layer 26
+get layer sp layer 27
+get layer sp layer 28
+get layer sp layer 29
+get layer sp layer 30
+get layer sp layer 31
+tensor([0.0001, 0.0006, 0.0033, 0.0086, 0.0092, 0.0113, 0.0156, 0.0173, 0.0175,
+        0.0190, 0.0200, 0.0222, 0.0237, 0.0249, 0.0264, 0.0269, 0.0294, 0.0319,
+        0.0358, 0.0365, 0.0383, 0.0410, 0.0436, 0.0481, 0.0477, 0.0540, 0.0543,
+        0.0591, 0.0612, 0.0594, 0.0633, 0.0498])
+time_cost: 1161.65665 sec
+tensor([0.5522, 0.5548, 0.5675, 0.5923, 0.5953, 0.6051, 0.6257, 0.6338, 0.6346,
+        0.6418, 0.6465, 0.6569, 0.6643, 0.6697, 0.6769, 0.6794, 0.6911, 0.7031,
+        0.7214, 0.7251, 0.7335, 0.7462, 0.7587, 0.7801, 0.7781, 0.8080, 0.8096,
+        0.8323, 0.8422, 0.8334, 0.8522, 0.7881])
+Before prune, #parameters: 6738415616
+loading calibdation data
+
+Generating train split:   0%|          | 0/356317 [00:00<?, ? examples/s]
+Generating train split:  18%|█▊        | 64140/356317 [00:00<00:00, 560583.00 examples/s]
+Generating train split:  34%|███▍      | 122789/356317 [00:00<00:00, 540933.35 examples/s]
+Generating train split:  50%|████▉     | 177746/356317 [00:00<00:00, 509037.77 examples/s]
+Generating train split:  65%|██████▌   | 232246/356317 [00:00<00:00, 408847.95 examples/s]
+Generating train split:  82%|████████▏ | 291456/356317 [00:00<00:00, 449929.46 examples/s]
+Generating train split: 100%|█████████▉| 354936/356317 [00:00<00:00, 489275.61 examples/s]
+Generating train split: 100%|██████████| 356317/356317 [00:00<00:00, 480550.76 examples/s]
+dataset loading complete
+pruning layer 0
+pruning layer 1
+pruning layer 2
+pruning layer 3
+pruning layer 4
+pruning layer 5
+pruning layer 6
+pruning layer 7
+pruning layer 8
+pruning layer 9
+pruning layer 10
+pruning layer 11
+pruning layer 12
+pruning layer 13
+pruning layer 14
+pruning layer 15
+pruning layer 16
+pruning layer 17
+pruning layer 18
+pruning layer 19
+pruning layer 20
+pruning layer 21
+pruning layer 22
+pruning layer 23
+pruning layer 24
+pruning layer 25
+pruning layer 26
+pruning layer 27
+pruning layer 28
+pruning layer 29
+pruning layer 30
+pruning layer 31
+time_cost: 0.93359 sec
+After prune, #parameters: 2205828818
+Selected Tasks: ['wikitext']
+
+evaluating...:   0%|          | 0/166 [00:00<?, ?it/s]
+evaluating...:   1%|          | 1/166 [00:00<00:51,  3.18it/s]
+evaluating...:   1%|          | 2/166 [00:00<00:51,  3.21it/s]
+evaluating...:   2%|▏         | 3/166 [00:00<00:50,  3.21it/s]
+evaluating...:   2%|▏         | 4/166 [00:01<00:50,  3.22it/s]
+evaluating...:   3%|▎         | 5/166 [00:01<00:50,  3.22it/s]
+evaluating...:   4%|▎         | 6/166 [00:01<00:49,  3.22it/s]
+evaluating...:   4%|▍         | 7/166 [00:02<00:49,  3.22it/s]
+evaluating...:   5%|▍         | 8/166 [00:02<00:49,  3.22it/s]
+evaluating...:   5%|▌         | 9/166 [00:02<00:48,  3.22it/s]
+evaluating...:   6%|▌         | 10/166 [00:03<00:48,  3.22it/s]
+evaluating...:   7%|▋         | 11/166 [00:03<00:48,  3.22it/s]
+evaluating...:   7%|▋         | 12/166 [00:03<00:47,  3.22it/s]
+evaluating...:   8%|▊         | 13/166 [00:04<00:47,  3.22it/s]
+evaluating...:   8%|▊         | 14/166 [00:04<00:47,  3.22it/s]
+evaluating...:   9%|▉         | 15/166 [00:04<00:46,  3.22it/s]
+evaluating...:  10%|▉         | 16/166 [00:04<00:46,  3.22it/s]
+evaluating...:  10%|█         | 17/166 [00:05<00:46,  3.22it/s]
+evaluating...:  11%|█         | 18/166 [00:05<00:45,  3.22it/s]
+evaluating...:  11%|█▏        | 19/166 [00:05<00:45,  3.22it/s]
+evaluating...:  12%|█▏        | 20/166 [00:06<00:45,  3.22it/s]
+evaluating...:  13%|█▎        | 21/166 [00:06<00:45,  3.22it/s]
+evaluating...:  13%|█▎        | 22/166 [00:06<00:44,  3.22it/s]
+evaluating...:  14%|█▍        | 23/166 [00:07<00:44,  3.22it/s]
+evaluating...:  14%|█▍        | 24/166 [00:07<00:44,  3.22it/s]
+evaluating...:  15%|█▌        | 25/166 [00:07<00:43,  3.22it/s]
+evaluating...:  16%|█▌        | 26/166 [00:08<00:43,  3.22it/s]
+evaluating...:  16%|█▋        | 27/166 [00:08<00:43,  3.22it/s]
+evaluating...:  17%|█▋        | 28/166 [00:08<00:42,  3.22it/s]
+evaluating...:  17%|█▋        | 29/166 [00:09<00:42,  3.22it/s]
+evaluating...:  18%|█▊        | 30/166 [00:09<00:42,  3.22it/s]
+evaluating...:  19%|█▊        | 31/166 [00:09<00:41,  3.22it/s]
+evaluating...:  19%|█▉        | 32/166 [00:09<00:41,  3.22it/s]
+evaluating...:  20%|█▉        | 33/166 [00:10<00:41,  3.22it/s]
+evaluating...:  20%|██        | 34/166 [00:10<00:40,  3.22it/s]
+evaluating...:  21%|██        | 35/166 [00:10<00:40,  3.22it/s]
+evaluating...:  22%|██▏       | 36/166 [00:11<00:40,  3.22it/s]
+evaluating...:  22%|██▏       | 37/166 [00:11<00:40,  3.22it/s]
+evaluating...:  23%|██▎       | 38/166 [00:11<00:39,  3.22it/s]
+evaluating...:  23%|██▎       | 39/166 [00:12<00:39,  3.22it/s]
+evaluating...:  24%|██▍       | 40/166 [00:12<00:39,  3.22it/s]
+evaluating...:  25%|██▍       | 41/166 [00:12<00:38,  3.22it/s]
+evaluating...:  25%|██▌       | 42/166 [00:13<00:38,  3.22it/s]
+evaluating...:  26%|██▌       | 43/166 [00:13<00:38,  3.22it/s]
+evaluating...:  27%|██▋       | 44/166 [00:13<00:37,  3.22it/s]
+evaluating...:  27%|██▋       | 45/166 [00:13<00:37,  3.22it/s]
+evaluating...:  28%|██▊       | 46/166 [00:14<00:37,  3.22it/s]
+evaluating...:  28%|██▊       | 47/166 [00:14<00:36,  3.22it/s]
+evaluating...:  29%|██▉       | 48/166 [00:14<00:36,  3.22it/s]
+evaluating...:  30%|██▉       | 49/166 [00:15<00:36,  3.22it/s]
+evaluating...:  30%|███       | 50/166 [00:15<00:36,  3.22it/s]
+evaluating...:  31%|███       | 51/166 [00:15<00:35,  3.22it/s]
+evaluating...:  31%|███▏      | 52/166 [00:16<00:35,  3.22it/s]
+evaluating...:  32%|███▏      | 53/166 [00:16<00:35,  3.22it/s]
+evaluating...:  33%|███▎      | 54/166 [00:16<00:34,  3.22it/s]
+evaluating...:  33%|███▎      | 55/166 [00:17<00:34,  3.22it/s]
+evaluating...:  34%|███▎      | 56/166 [00:17<00:34,  3.22it/s]
+evaluating...:  34%|███▍      | 57/166 [00:17<00:33,  3.22it/s]
+evaluating...:  35%|███▍      | 58/166 [00:18<00:33,  3.22it/s]
+evaluating...:  36%|███▌      | 59/166 [00:18<00:33,  3.22it/s]
+evaluating...:  36%|███▌      | 60/166 [00:18<00:32,  3.22it/s]
+evaluating...:  37%|███▋      | 61/166 [00:18<00:32,  3.22it/s]
+evaluating...:  37%|███▋      | 62/166 [00:19<00:32,  3.22it/s]
+evaluating...:  38%|███▊      | 63/166 [00:19<00:31,  3.22it/s]
+evaluating...:  39%|███▊      | 64/166 [00:19<00:31,  3.22it/s]
+evaluating...:  39%|███▉      | 65/166 [00:20<00:31,  3.22it/s]
+evaluating...:  40%|███▉      | 66/166 [00:20<00:31,  3.22it/s]
+evaluating...:  40%|████      | 67/166 [00:20<00:30,  3.22it/s]
+evaluating...:  41%|████      | 68/166 [00:21<00:30,  3.22it/s]
+evaluating...:  42%|████▏     | 69/166 [00:21<00:30,  3.22it/s]
+evaluating...:  42%|████▏     | 70/166 [00:21<00:29,  3.22it/s]
+evaluating...:  43%|████▎     | 71/166 [00:22<00:29,  3.22it/s]
+evaluating...:  43%|████▎     | 72/166 [00:22<00:29,  3.22it/s]
+evaluating...:  44%|████▍     | 73/166 [00:22<00:28,  3.22it/s]
+evaluating...:  45%|████▍     | 74/166 [00:22<00:28,  3.22it/s]
+evaluating...:  45%|████▌     | 75/166 [00:23<00:28,  3.22it/s]
+evaluating...:  46%|████▌     | 76/166 [00:23<00:27,  3.22it/s]
+evaluating...:  46%|████▋     | 77/166 [00:23<00:27,  3.22it/s]
+evaluating...:  47%|████▋     | 78/166 [00:24<00:27,  3.22it/s]
+evaluating...:  48%|████▊     | 79/166 [00:24<00:27,  3.22it/s]
+evaluating...:  48%|████▊     | 80/166 [00:24<00:26,  3.22it/s]
+evaluating...:  49%|████▉     | 81/166 [00:25<00:26,  3.22it/s]
+evaluating...:  49%|████▉     | 82/166 [00:25<00:26,  3.22it/s]
+evaluating...:  50%|█████     | 83/166 [00:25<00:25,  3.22it/s]
+evaluating...:  51%|█████     | 84/166 [00:26<00:25,  3.22it/s]
+evaluating...:  51%|█████     | 85/166 [00:26<00:25,  3.22it/s]
+evaluating...:  52%|█████▏    | 86/166 [00:26<00:24,  3.22it/s]
+evaluating...:  52%|█████▏    | 87/166 [00:27<00:24,  3.22it/s]
+evaluating...:  53%|█████▎    | 88/166 [00:27<00:24,  3.22it/s]
+evaluating...:  54%|█████▎    | 89/166 [00:27<00:23,  3.22it/s]
+evaluating...:  54%|█████▍    | 90/166 [00:27<00:23,  3.22it/s]
+evaluating...:  55%|█████▍    | 91/166 [00:28<00:23,  3.22it/s]
+evaluating...:  55%|█████▌    | 92/166 [00:28<00:22,  3.22it/s]
+evaluating...:  56%|█████▌    | 93/166 [00:28<00:22,  3.22it/s]
+evaluating...:  57%|█████▋    | 94/166 [00:29<00:22,  3.22it/s]
+evaluating...:  57%|█████▋    | 95/166 [00:29<00:22,  3.22it/s]
+evaluating...:  58%|█████▊    | 96/166 [00:29<00:21,  3.22it/s]
+evaluating...:  58%|█████▊    | 97/166 [00:30<00:21,  3.22it/s]
+evaluating...:  59%|█████▉    | 98/166 [00:30<00:21,  3.22it/s]
+evaluating...:  60%|█████▉    | 99/166 [00:30<00:20,  3.22it/s]
+evaluating...:  60%|██████    | 100/166 [00:31<00:20,  3.22it/s]
+evaluating...:  61%|██████    | 101/166 [00:31<00:20,  3.22it/s]
+evaluating...:  61%|██████▏   | 102/166 [00:31<00:19,  3.22it/s]
+evaluating...:  62%|██████▏   | 103/166 [00:31<00:19,  3.22it/s]
+evaluating...:  63%|██████▎   | 104/166 [00:32<00:19,  3.22it/s]
+evaluating...:  63%|██████▎   | 105/166 [00:32<00:18,  3.22it/s]
+evaluating...:  64%|██████▍   | 106/166 [00:32<00:18,  3.22it/s]
+evaluating...:  64%|██████▍   | 107/166 [00:33<00:18,  3.22it/s]
+evaluating...:  65%|██████▌   | 108/166 [00:33<00:18,  3.22it/s]
+evaluating...:  66%|██████▌   | 109/166 [00:33<00:17,  3.22it/s]
+evaluating...:  66%|██████▋   | 110/166 [00:34<00:17,  3.22it/s]
+evaluating...:  67%|██████▋   | 111/166 [00:34<00:17,  3.22it/s]
+evaluating...:  67%|██████▋   | 112/166 [00:34<00:16,  3.22it/s]
+evaluating...:  68%|██████▊   | 113/166 [00:35<00:16,  3.22it/s]
+evaluating...:  69%|██████▊   | 114/166 [00:35<00:16,  3.22it/s]
+evaluating...:  69%|██████▉   | 115/166 [00:35<00:15,  3.22it/s]
+evaluating...:  70%|██████▉   | 116/166 [00:36<00:15,  3.22it/s]
+evaluating...:  70%|███████   | 117/166 [00:36<00:15,  3.22it/s]
+evaluating...:  71%|███████   | 118/166 [00:36<00:14,  3.22it/s]
+evaluating...:  72%|███████▏  | 119/166 [00:36<00:14,  3.22it/s]
+evaluating...:  72%|███████▏  | 120/166 [00:37<00:14,  3.22it/s]
+evaluating...:  73%|███████▎  | 121/166 [00:37<00:13,  3.22it/s]
+evaluating...:  73%|███████▎  | 122/166 [00:37<00:13,  3.22it/s]
+evaluating...:  74%|███████▍  | 123/166 [00:38<00:13,  3.22it/s]
+evaluating...:  75%|███████▍  | 124/166 [00:38<00:13,  3.22it/s]
+evaluating...:  75%|███████▌  | 125/166 [00:38<00:12,  3.22it/s]
+evaluating...:  76%|███████▌  | 126/166 [00:39<00:12,  3.22it/s]
+evaluating...:  77%|███████▋  | 127/166 [00:39<00:12,  3.22it/s]
+evaluating...:  77%|███████▋  | 128/166 [00:39<00:11,  3.22it/s]
+evaluating...:  78%|███████▊  | 129/166 [00:40<00:11,  3.22it/s]
+evaluating...:  78%|███████▊  | 130/166 [00:40<00:11,  3.22it/s]
+evaluating...:  79%|███████▉  | 131/166 [00:40<00:10,  3.22it/s]
+evaluating...:  80%|███████▉  | 132/166 [00:40<00:10,  3.22it/s]
+evaluating...:  80%|████████  | 133/166 [00:41<00:10,  3.22it/s]
+evaluating...:  81%|████████  | 134/166 [00:41<00:09,  3.22it/s]
+evaluating...:  81%|████████▏ | 135/166 [00:41<00:09,  3.22it/s]
+evaluating...:  82%|████████▏ | 136/166 [00:42<00:09,  3.22it/s]
+evaluating...:  83%|████████▎ | 137/166 [00:42<00:09,  3.22it/s]
+evaluating...:  83%|████████▎ | 138/166 [00:42<00:08,  3.22it/s]
+evaluating...:  84%|████████▎ | 139/166 [00:43<00:08,  3.22it/s]
+evaluating...:  84%|████████▍ | 140/166 [00:43<00:08,  3.22it/s]
+evaluating...:  85%|████████▍ | 141/166 [00:43<00:07,  3.22it/s]
+evaluating...:  86%|████████▌ | 142/166 [00:44<00:07,  3.22it/s]
+evaluating...:  86%|████████▌ | 143/166 [00:44<00:07,  3.22it/s]
+evaluating...:  87%|████████▋ | 144/166 [00:44<00:06,  3.22it/s]
+evaluating...:  87%|████████▋ | 145/166 [00:45<00:06,  3.22it/s]
+evaluating...:  88%|████████▊ | 146/166 [00:45<00:06,  3.22it/s]
+evaluating...:  89%|████████▊ | 147/166 [00:45<00:05,  3.22it/s]
+evaluating...:  89%|████████▉ | 148/166 [00:45<00:05,  3.22it/s]
+evaluating...:  90%|████████▉ | 149/166 [00:46<00:05,  3.22it/s]
+evaluating...:  90%|█████████ | 150/166 [00:46<00:04,  3.22it/s]
+evaluating...:  91%|█████████ | 151/166 [00:46<00:04,  3.22it/s]
+evaluating...:  92%|█████████▏| 152/166 [00:47<00:04,  3.22it/s]
+evaluating...:  92%|█████████▏| 153/166 [00:47<00:04,  3.22it/s]
+evaluating...:  93%|█████████▎| 154/166 [00:47<00:03,  3.22it/s]
+evaluating...:  93%|█████████▎| 155/166 [00:48<00:03,  3.22it/s]
+evaluating...:  94%|█████████▍| 156/166 [00:48<00:03,  3.22it/s]
+evaluating...:  95%|█████████▍| 157/166 [00:48<00:02,  3.22it/s]
+evaluating...:  95%|█████████▌| 158/166 [00:49<00:02,  3.22it/s]
+evaluating...:  96%|█████████▌| 159/166 [00:49<00:02,  3.22it/s]
+evaluating...:  96%|█████████▋| 160/166 [00:49<00:01,  3.22it/s]
+evaluating...:  97%|█████████▋| 161/166 [00:49<00:01,  3.22it/s]
+evaluating...:  98%|█████████▊| 162/166 [00:50<00:01,  3.22it/s]
+evaluating...:  98%|█████████▊| 163/166 [00:50<00:00,  3.22it/s]
+evaluating...:  99%|█████████▉| 164/166 [00:50<00:00,  3.22it/s]
+evaluating...:  99%|█████████▉| 165/166 [00:51<00:00,  3.22it/s]
+evaluating...: 100%|██████████| 166/166 [00:51<00:00,  3.22it/s]
+evaluating...: 100%|██████████| 166/166 [00:51<00:00,  3.22it/s]
+wikitext ppl: 22.59520149230957

@@ -2,19 +2,19 @@ import json
 import os
 import argparse
 import fnmatch
-
 import numpy as np
 import torch
 import random
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from pruner import *
+from layersp import *
+from lm_eval import tasks, evaluator
+
 
 np.random.seed(0)
 torch.manual_seed(0)
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from pruner import *
-from layersp import *
-from lm_eval import tasks, evaluator
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 
@@ -92,9 +92,7 @@ def make_parser():
     parser = argparse.ArgumentParser("Pruner Processor")
 
     parser.add_argument("-p", "--pruner", default=None, type=str, help="pruner")
-    parser.add_argument("-s", "--final_s", default=0., type=float, help="final sparsity")
-    parser.add_argument("--sparsity_ratio", default=None, type=float, help="target sparsity (alias of final_s)")
-
+    parser.add_argument("-s", "--sparsity_ratio", dest="final_s", default=0.7, type=float, help="final sparsity")
     parser.add_argument('--base_model', type=str, help='model name')
     parser.add_argument('--save_path', type=str, default=None,
                         help='save path')
@@ -108,27 +106,8 @@ def make_parser():
     parser.add_argument("-i", "--imp", default="none", type=str, help="imp type")
     parser.add_argument("--layer", default="uniform", type=str, help="layer sp")
 
-    # dlp / dlp_v1 controls
-    # parser.add_argument("--sparsity_ratio", default=None, type=float, help="target sparsity used by dlp")
-    # parser.add_argument("--nsamples", default=128, type=int, help="number of samples for probing")
-    # parser.add_argument("--risk_nsamples", default=16, type=int, help="number of samples for risk estimation")
-    # parser.add_argument("--risk_k", default=4, type=int, help="look-ahead layers for risk accumulation")
-    # parser.add_argument("--risk_probe", default=0.02, type=float, help="temporary probe pruning ratio")
-    # parser.add_argument("--risk_decay", default=0.8, type=float, help="decay for farther-layer drift")
-    # parser.add_argument("--risk_alpha", default=0.5, type=float, help="weight of risk term in D/R fusion")
-    # parser.add_argument("--combine_mode", default="prod", type=str,
-    #                     choices=["linear", "prod", "geom", "gate", "max", "exp"],
-    #                     help="metric fusion mode for D and normalized risk")
-    # parser.add_argument("--probe_method", default="wanda", type=str,
-    #                     choices=["wanda", "magnitude", "none"],
-    #                     help="probe perturbation method")
-    # parser.add_argument("--risk_include_self", action="store_true", default=True,
-    #                     help="include current layer drift in risk")
-    # parser.add_argument("--risk_exclude_self", action="store_false", dest="risk_include_self",
-    #                     help="exclude current layer drift in risk")
-
     # \beta
-    parser.add_argument("--lamda", default=1., type=float, help="lambda")
+    # parser.add_argument("--lamda", default=1., type=float, help="lambda")
 
     # control
     parser.add_argument("--fp16", action='store_true', help='use fp16')
@@ -138,18 +117,18 @@ def make_parser():
     parser.add_argument("--update", action='store_true', help='update weight after prune')
     parser.add_argument("--use_variant", action='store_true',
                         help='whether to use the wanda variant described in the appendix')
-    parser.add_argument("--block", default=0, type=int, help='use block')
+    # parser.add_argument("--block", default=0, type=int, help='use block')
 
     parser.add_argument("-prune_n", "--N", default=0, type=int, help="prune N")
     parser.add_argument("-prune_m", "--M", default=0, type=int, help="prune M")
 
     # owl
-    parser.add_argument(
-        "--Lamda",
-        default=0.08,
-        type=float,
-        help="Lamda",
-    )
+    # parser.add_argument(
+    #     "--Lamda",
+    #     default=0.08,
+    #     type=float,
+    #     help="Lamda",
+    # )
     parser.add_argument("--lod", action='store_true', help='measure lod')
 
     # alpha pruning
@@ -194,15 +173,19 @@ def make_parser():
     parser.add_argument("--seed", default=0, type=int, help='use block')
     parser.add_argument("--resp", default=0.5, type=float, help='resp')
 
+
     ## risk
-    parser.add_argument('--risk_nsamples', type=int, default=16, help='Number of samples used for risk/sensitivity calculation. Defaults to min(nsamples, 32) if not specified.')
-    parser.add_argument('--risk_k', type=int, default=3, help='Number of downstream layers used to measure propagation risk R_i')
-    parser.add_argument('--risk_include_self', action='store_true', help='如果设置，计算 Risk 时将包含当前层 (t=0) 的直接误差；如果不设置，只计算传播到后续层的误差。')
-    parser.add_argument('--risk_probe', type=float, default=0.02, help='Probe pruning ratio for estimating propagation risk (e.g., 0.01~0.05)')
-    parser.add_argument('--combine_mode', type=str, default='prod', choices=['linear', 'prod', 'geom', 'gate', 'max', 'exp'], help="How to combine D and R metrics: 'linear' for (1-a)*D + a*R, 'prod' for D*(1 + a*Rn)")
+    parser.add_argument('--risk_nsamples', type=int, default=32, help='Number of samples used for risk/sensitivity calculation. Defaults to min(nsamples, 32) if not specified.')
+    parser.add_argument('--risk_k', type=int, default=1, help='Number of downstream layers used to measure propagation risk R_i')
+    parser.add_argument('--risk_include_self', action='store_true', default=False, help='如果设置，计算 Risk 时将包含当前层 (t=0) 的直接误差；如果不设置，只计算传播到后续层的误差。')
+    parser.add_argument('--risk_probe', type=float, default=0.1, help='Probe pruning ratio for estimating propagation risk (e.g., 0.01~0.05)')
+    parser.add_argument('--combine_mode', type=str, default='linear', choices=['linear', 'prod', 'geom', 'gate', 'max', 'exp'], help="How to combine D and R metrics: 'linear' for (1-a)*D + a*R, 'prod' for D*(1 + a*Rn)")
     parser.add_argument('--risk_decay', type=float, default=0.9, help='Exponential decay factor for downstream layers when aggregating propagation risk')
     parser.add_argument('--risk_alpha', type=float, default=0.1, help='Weight for propagation risk in D_hat = (1-alpha) * D + alpha * R')
     parser.add_argument('--probe_method', type=str, default='magnitude', choices=['wanda', 'magnitude'], help='Method used for risk probing (perturbation) inside prune_wanda_outlier_plus.')
+    parser.add_argument("--Lamda", default=0.2, type=float, help="Lambda")
+    parser.add_argument("--block", default=0, type=int, help='use block')
+
 
     return parser
 
@@ -225,9 +208,6 @@ def load_model_tokenizer(args):
 
 if __name__ == '__main__':
     args = make_parser().parse_args()
-
-    if args.sparsity_ratio is None:
-        args.sparsity_ratio = args.final_s
 
     tokenizer, model = load_model_tokenizer(args)
 
